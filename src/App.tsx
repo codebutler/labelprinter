@@ -2,6 +2,9 @@ import { Button, Input, Stack } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
 import { canvas2nv, hexStringToArrayBuffer } from "./utils";
 
+const sleep = async (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 export const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -13,7 +16,7 @@ export const App: React.FC = () => {
       return;
     }
 
-    const context = canvas.getContext("2d", { alpha: false })!;
+    const context = canvas.getContext("2d")!;
     context.reset();
 
     // rotate -90deg
@@ -37,7 +40,6 @@ export const App: React.FC = () => {
     const characteristics = await service.getCharacteristics();
     const writable = characteristics.find((c) => c.properties.write)!;
 
-    // initialize printer
     const initBuffer = hexStringToArrayBuffer(
       [
         // INS_PRINT_DENSITY
@@ -53,37 +55,44 @@ export const App: React.FC = () => {
         "1b40",
         // INS_PRINT_PICTURE
         "1d763000",
-      ].join(),
+      ].join(""),
     );
-
     await writable.writeValueWithoutResponse(initBuffer);
 
     const data = canvas2nv(canvas);
     for (let i = 0; i < data.length; i += 100) {
       const chunk = data.slice(i, i + 100);
       await writable.writeValueWithoutResponse(chunk);
+      await sleep(10);
     }
   };
 
   return (
     <Stack>
+      <img width="400px" src="/d30.png" />
       <Input
+        size="xl"
         placeholder="Type something"
         value={text}
         onChange={(event) => setText(event.currentTarget.value)}
       />
+      <Button color="green" onClick={onClickPrint}>
+        Print!
+      </Button>
       <canvas
         ref={canvasRef}
         // 12mm x 40mm label
         width={96}
         height={320}
         style={{
-          display: "none",
+          // display: "none",
+          border: "1px solid gray",
+          position: "absolute",
+          top: 10,
+          left: 10,
+          width: "100px",
         }}
       />
-      <Button color="green" onClick={onClickPrint}>
-        Print!
-      </Button>
     </Stack>
   );
 };

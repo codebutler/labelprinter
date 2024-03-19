@@ -1,5 +1,6 @@
 export const canvas2nv = (canvas: HTMLCanvasElement) => {
-  const context = canvas.getContext("2d", { alpha: false })!;
+  const context = canvas.getContext("2d")!;
+
   const width = canvas.width;
   const height = canvas.height;
   const byteWidth = Math.ceil(width / 8);
@@ -14,16 +15,24 @@ export const canvas2nv = (canvas: HTMLCanvasElement) => {
 
   const byteArray = [];
 
+  const imageData = context.getImageData(
+    0,
+    0,
+    canvas.width,
+    canvas.height,
+  ).data;
+
   for (let y = 0; y < height; y++) {
     for (let byteIndex = 0; byteIndex < byteWidth; byteIndex++) {
       let byte = 0;
       for (let bit = 0; bit < 8; bit++) {
         const x = byteIndex * 8 + bit;
         if (x < width) {
+          // Calculate the index in the imageData array
+          const index = (y * width + x) * 4; // Each pixel is 4 elements (RGBA)
           const [red, green, blue] = adjustColor(
-            context.getImageData(x, y, 1, 1).data,
+            imageData.slice(index, index + 4),
           );
-          // Simple average method for grayscale
           const grayscale = (red + green + blue) / 3;
           // Thresholding to create a monochrome image
           const bitValue = grayscale < 128 ? 1 : 0;
@@ -44,11 +53,13 @@ const adjustColor = (rgba: Uint8ClampedArray) => {
 
   const adjustedRgb = [];
 
+  const alpha = rgba[3];
+
   for (let i = 0; i < 3; i++) {
     // Loop over R, G, and B
     // Calculate the new color component, simulating transparency against a white background
     adjustedRgb[i] = Math.round(
-      (rgba[i] * rgba[3]) / 255 + backgroundRgb[i] * (1 - rgba[3] / 255),
+      (rgba[i] * alpha) / 255 + backgroundRgb[i] * (1 - alpha / 255),
     );
   }
 
