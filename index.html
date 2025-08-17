@@ -4,6 +4,19 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Label Printer</title>
+        <style>
+            * {
+                -webkit-font-smoothing: none !important;
+                -moz-osx-font-smoothing: grayscale !important;
+                font-smooth: never !important;
+                text-rendering: optimizeSpeed !important;
+            }
+            canvas {
+                image-rendering: pixelated !important;
+                image-rendering: -moz-crisp-edges !important;
+                image-rendering: crisp-edges !important;
+            }
+        </style>
     </head>
     <body>
         <div id="root"></div>
