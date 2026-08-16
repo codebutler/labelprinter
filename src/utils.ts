@@ -1,4 +1,5 @@
-export const canvas2nv = (canvas: HTMLCanvasElement) => {
+// Lower thresholds put more ink on the tape.
+export const canvas2nv = (canvas: HTMLCanvasElement, threshold = 128) => {
   const context = canvas.getContext("2d")!;
 
   const width = canvas.width;
@@ -33,9 +34,10 @@ export const canvas2nv = (canvas: HTMLCanvasElement) => {
           const [red, green, blue] = adjustColor(
             imageData.slice(index, index + 4),
           );
-          const grayscale = (red + green + blue) / 3;
-          // Thresholding to create a monochrome image
-          const bitValue = grayscale < 128 ? 1 : 0;
+          // Weighted for perceived brightness rather than a flat average, so
+          // antialiased edges land on the right side of the threshold.
+          const grayscale = 0.299 * red + 0.587 * green + 0.114 * blue;
+          const bitValue = grayscale < threshold ? 1 : 0;
           // Set bit in the byte
           byte |= bitValue << (7 - bit);
         }
@@ -53,13 +55,12 @@ const adjustColor = (rgba: Uint8ClampedArray) => {
 
   const adjustedRgb = [];
 
-  const alpha = rgba[3];
+  const alpha = rgba[3] / 255;
 
   for (let i = 0; i < 3; i++) {
-    // Loop over R, G, and B
-    // Calculate the new color component, simulating transparency against a white background
+    // Loop over R, G, and B, compositing against the white background
     adjustedRgb[i] = Math.round(
-      (rgba[i] * alpha) / 255 + backgroundRgb[i] * (1 - alpha / 255),
+      rgba[i] * alpha + backgroundRgb[i] * (1 - alpha),
     );
   }
 
