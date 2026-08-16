@@ -1,0 +1,19 @@
+README.md
+  s_d9d9c4bf03448e::t_4861d4aa9aad69 3-4,6-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "6037142dde46e3c452b6974e70fe47711d91d6c4",
+  "prompts": {},
+  "sessions": {
+    "s_d9d9c4bf03448e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ec848c05-9e7b-417e-897c-0dcb27bbab7e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eric Butler <eric@codebutler.com>"
+    }
+  }
+}
