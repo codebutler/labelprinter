@@ -1,0 +1,19 @@
+src/utils.ts
+  s_d9d9c4bf03448e::t_4cfd1422cb5134 1-2,37-40,58,61,63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "d4f162d817c6aa4454cb88fe84ee1438632a67c1",
+  "prompts": {},
+  "sessions": {
+    "s_d9d9c4bf03448e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ec848c05-9e7b-417e-897c-0dcb27bbab7e",
+        "model": "unknown"
+      },
+      "human_author": "Eric Butler <eric@codebutler.com>"
+    }
+  }
+}
