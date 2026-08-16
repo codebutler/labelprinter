@@ -127,7 +127,6 @@ const openSession = async (
   // Which characteristic carries status isn't documented anywhere we can read
   // (the Android app talks classic SPP, not BLE), so subscribe to all of them
   // and let the printer pick.
-  let latest: PrinterEvent | null = null;
   const listeners = new Set<(event: PrinterEvent) => void>();
 
   const onNotify = (notification: Event) => {
@@ -150,7 +149,6 @@ const openSession = async (
         onStatus?.(response.status);
       }
       if (response.event) {
-        latest = response.event;
         listeners.forEach((listener) => listener(response.event!));
       }
     }
@@ -228,15 +226,20 @@ const openSession = async (
       }),
     waitFor: (event, timeout) =>
       new Promise((resolve) => {
-        if (latest === event) {
-          resolve(event);
-          return;
-        }
         const timer = setTimeout(() => {
           listeners.delete(listener);
           resolve(null);
         }, timeout);
         const listener = (received: PrinterEvent) => {
+          // A fault or cancellation must interrupt a wait for completion, but
+          // an unrelated event must not satisfy it.
+          if (
+            received !== event &&
+            received !== "cancelled" &&
+            received !== "fault"
+          ) {
+            return;
+          }
           clearTimeout(timer);
           listeners.delete(listener);
           resolve(received);
@@ -331,16 +334,31 @@ export type PrintOptions = {
   density?: number;
 };
 
-export const printCanvas = async (
-  canvas: HTMLCanvasElement,
+export type PrintItem = {
+  canvas: HTMLCanvasElement;
+  quantity: number;
+};
+
+export const printCanvases = async (
+  items: PrintItem[],
   session: Session,
   { onStage, onLog = noLog, density = 2 }: PrintOptions,
 ) => {
-  const image = canvas2nv(canvas);
-  onLog({
-    time: Date.now(),
-    kind: "info",
-    message: `Image ${canvas.width}x${canvas.height} dots, ${image.length} bytes`,
+  const jobs = items.map(({ canvas, quantity }) => ({
+    image: canvas2nv(canvas),
+    width: canvas.width,
+    height: canvas.height,
+    quantity: Math.max(1, Math.min(255, Math.round(quantity))),
+  }));
+  const totalBytes = jobs.reduce((total, job) => total + job.image.length, 0);
+  let sentBytes = 0;
+
+  jobs.forEach((job, index) => {
+    onLog({
+      time: Date.now(),
+      kind: "info",
+      message: `Image ${index + 1}/${jobs.length}: ${job.width}x${job.height} dots, ${job.image.length} bytes, quantity ${job.quantity}`,
+    });
   });
 
   try {
@@ -353,22 +371,44 @@ export const printCanvas = async (
 
       await write(INS.density(density));
       await write(INS.paperType(PAPER_TYPE_GAP));
-      await write(INS.init);
-      await write(INS.repeat(1));
+      let confirmed = true;
 
-      onStage({ stage: "sending", progress: 0 });
-      await write(INS.printPicture);
-      for (let i = 0; i < image.length; i += CHUNK_SIZE) {
-        await write(image.slice(i, i + CHUNK_SIZE));
+      for (const job of jobs) {
+        await write(INS.init);
+        await write(INS.repeat(job.quantity));
+
+        // Listen before sending so a very fast completion notification cannot
+        // arrive in the gap between the final chunk and waitFor().
+        const completion = session.waitFor(
+          "complete",
+          COMPLETE_TIMEOUT_MS * job.quantity,
+        );
         onStage({
           stage: "sending",
-          progress: Math.min(1, (i + CHUNK_SIZE) / image.length),
+          progress: totalBytes === 0 ? 1 : sentBytes / totalBytes,
         });
+        await write(INS.printPicture);
+        for (let i = 0; i < job.image.length; i += CHUNK_SIZE) {
+          const chunk = job.image.slice(i, i + CHUNK_SIZE);
+          await write(chunk);
+          sentBytes += chunk.length;
+          onStage({
+            stage: "sending",
+            progress: totalBytes === 0 ? 1 : sentBytes / totalBytes,
+          });
+        }
+
+        // Wait for this design to finish before replacing the printer's image
+        // buffer with the next one in the batch.
+        onStage({ stage: "waiting" });
+        const event = await completion;
+        if (event === "cancelled" || event === "fault") {
+          return event;
+        }
+        confirmed = confirmed && event === "complete";
       }
 
-      // Bytes written isn't the same as ink on tape: the printer reports back.
-      onStage({ stage: "waiting" });
-      return session.waitFor("complete", COMPLETE_TIMEOUT_MS);
+      return confirmed ? "complete" : null;
     });
 
     if (event === "cancelled") {
@@ -386,5 +426,11 @@ export const printCanvas = async (
     onStage({ stage: "error", message: describe(error) });
   }
 };
+
+export const printCanvas = async (
+  canvas: HTMLCanvasElement,
+  session: Session,
+  options: PrintOptions,
+) => printCanvases([{ canvas, quantity: 1 }], session, options);
 
 export const describeError = describe;

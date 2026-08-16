@@ -72,6 +72,14 @@ export const fitFontSize = (label: Label) => {
   return Math.max(MIN_FONT_SIZE, Math.floor(fontSize * fit));
 };
 
+// A batch in auto mode uses one size for every label. The most constrained
+// string sets that size; shorter strings deliberately keep the same type size
+// rather than growing independently.
+export const fitLabelsFontSize = (labels: Label[]) =>
+  labels.length === 0
+    ? MAX_FONT_SIZE
+    : Math.min(...labels.map((label) => fitFontSize(label)));
+
 // Where to put the baseline so the text looks centred across the tape.
 //
 // Centring the whole ink box is arithmetically correct but reads as too high:
@@ -106,6 +114,7 @@ export const drawLabel = (
   label: Label,
   resolution: number,
   offset: Offset = NO_OFFSET,
+  fittedSize?: number,
 ) => {
   const { width, length } = labelDots(label);
 
@@ -119,7 +128,7 @@ export const drawLabel = (
   context.transform(0, -1, 1, 0, 0, length);
   context.translate(offset.along, offset.across);
 
-  const size = fitFontSize(label);
+  const size = fittedSize ?? fitFontSize(label);
   context.font = fontString(label, size);
   // Aligning "center" centres the advance width, which includes the side
   // bearings — a letter with a wide bearing on one side then sits off to one

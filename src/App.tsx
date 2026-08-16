@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PrinterIcon } from "lucide-react";
+import { PlusIcon, PrinterIcon, Trash2Icon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +31,7 @@ import {
 } from "@/fonts";
 import {
   drawLabel,
+  fitLabelsFontSize,
   isClamped,
   labelDots,
   LABEL_SIZES,
@@ -44,7 +45,7 @@ import {
   describeError,
   isCancellation,
   pollPrinter,
-  printCanvas,
+  printCanvases,
   queryPrinter,
   reconnectPrinter,
   type LogEntry,
@@ -60,6 +61,43 @@ const SIZE_MODES = [
 ];
 const MAX_PREVIEW_SCALE = 4;
 const PANEL_WIDTH = 1040;
+const MAX_QUANTITY = 255;
+
+type LabelItem = {
+  id: string;
+  text: string;
+  quantity: number;
+};
+
+const newLabel = (text = ""): LabelItem => ({
+  id: crypto.randomUUID(),
+  text,
+  quantity: 1,
+});
+
+const loadLabels = (): LabelItem[] => {
+  try {
+    const stored = JSON.parse(localStorage.getItem("labels") ?? "null");
+    if (Array.isArray(stored) && stored.length > 0) {
+      const labels = stored
+        .filter((item) => item && typeof item.text === "string")
+        .map((item) => ({
+          id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
+          text: item.text,
+          quantity: Math.max(
+            1,
+            Math.min(MAX_QUANTITY, Math.round(Number(item.quantity) || 1)),
+          ),
+        }));
+      if (labels.length > 0) {
+        return labels;
+      }
+    }
+  } catch {
+    // Ignore malformed data and migrate the old single-label value below.
+  }
+  return [newLabel(localStorage.getItem("text") ?? "")];
+};
 
 // A name rendered in its own face. With every family in the list at once, the
 // stylesheet is only fetched once the option is actually scrolled into view.
@@ -115,13 +153,12 @@ const statusText = (status: PrintStage) => {
 };
 
 export const App: React.FC = () => {
-  // The preview is drawn at a higher resolution so it doesn't look jagged; the
-  // print canvas stays at the printer's own resolution and is what gets sent.
-  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
-  const printCanvasRef = useRef<HTMLCanvasElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // Every label owns a high-resolution preview canvas. Printer-resolution
+  // canvases are created for the full batch on demand.
+  const previewCanvasRefs = useRef(new Map<string, HTMLCanvasElement>());
+  const inputRefs = useRef(new Map<string, HTMLInputElement>());
 
-  const [text, setText] = useStored("text", "");
+  const [labels, setLabels] = useState<LabelItem[]>(loadLabels);
   const [fontFamily, setFontFamily] = useStored("fontFamily", DEFAULT_FONT);
   const [fontWeight, setFontWeight] = useStored("fontWeight", DEFAULT_WEIGHT);
   // Auto means "fill the label": the fit runs from the largest size the label
@@ -154,8 +191,37 @@ export const App: React.FC = () => {
   const [effectiveSize, setEffectiveSize] = useState(fontSize);
   const [status, setStatus] = useState<PrintStage>({ stage: "idle" });
 
-  const label = { text, fontFamily, fontWeight, fontSize, widthMm, lengthMm };
+  const label = {
+    text: labels[0].text,
+    fontFamily,
+    fontWeight,
+    fontSize,
+    widthMm,
+    lengthMm,
+  };
   const dots = labelDots(label);
+
+  const updateLabel = (id: string, patch: Partial<LabelItem>) =>
+    setLabels((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    );
+
+  const addLabel = () => {
+    const item = newLabel();
+    setLabels((current) => [...current, item]);
+    requestAnimationFrame(() => inputRefs.current.get(item.id)?.focus());
+  };
+
+  const removeLabel = (id: string) => {
+    if (labels.length === 1) {
+      return;
+    }
+    setLabels((current) => current.filter((item) => item.id !== id));
+  };
+
+  useEffect(() => {
+    localStorage.setItem("labels", JSON.stringify(labels));
+  }, [labels]);
 
   const viewportWidth = useViewportWidth();
   // A long label on a narrow screen scales below 1:1 rather than overflowing.
@@ -166,12 +232,6 @@ export const App: React.FC = () => {
   const previewResolution = Math.ceil(scale * (window.devicePixelRatio || 1));
 
   useEffect(() => {
-    const preview = previewCanvasRef.current;
-    const print = printCanvasRef.current;
-    if (!preview || !print) {
-      return;
-    }
-
     let cancelled = false;
 
     const render = async () => {
@@ -182,13 +242,21 @@ export const App: React.FC = () => {
         return;
       }
 
-      drawLabel(preview, label, previewResolution);
-      setEffectiveSize(
-        drawLabel(print, label, 1, {
-          along: offsetAlong,
-          across: offsetAcross,
-        }),
-      );
+      const batch = labels.map((item) => ({ ...label, text: item.text }));
+      const sharedSize = fitLabelsFontSize(batch);
+      batch.forEach((batchLabel, index) => {
+        const preview = previewCanvasRefs.current.get(labels[index].id);
+        if (preview) {
+          drawLabel(
+            preview,
+            batchLabel,
+            previewResolution,
+            undefined,
+            sharedSize,
+          );
+        }
+      });
+      setEffectiveSize(sharedSize);
     };
 
     render();
@@ -198,15 +266,13 @@ export const App: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    text,
+    labels,
     fontFamily,
     fontWeight,
     fontSize,
     widthMm,
     lengthMm,
     previewResolution,
-    offsetAlong,
-    offsetAcross,
   ]);
 
   // Clear a finished print so the readout returns to Ready.
@@ -320,8 +386,8 @@ export const App: React.FC = () => {
   };
 
   const onClickPrint = async () => {
-    const canvas = printCanvasRef.current;
-    if (!canvas) {
+    const printable = labels.filter((item) => item.text.length > 0);
+    if (printable.length === 0) {
       return;
     }
     if (!sessionRef.current?.connected()) {
@@ -329,7 +395,32 @@ export const App: React.FC = () => {
     }
     const session = await connect();
     if (session) {
-      printCanvas(canvas, session, { onStage: setStatus, onLog, density });
+      await loadFont(fontFamily, fontWeight, fontSize);
+      const batch = printable.map((item) => ({
+        text: item.text,
+        fontFamily,
+        fontWeight,
+        fontSize,
+        widthMm,
+        lengthMm,
+      }));
+      const sharedSize = fitLabelsFontSize(batch);
+      const jobs = batch.map((batchLabel, index) => {
+        const canvas = document.createElement("canvas");
+        drawLabel(
+          canvas,
+          batchLabel,
+          1,
+          { along: offsetAlong, across: offsetAcross },
+          sharedSize,
+        );
+        return { canvas, quantity: printable[index].quantity };
+      });
+      await printCanvases(jobs, session, {
+        onStage: setStatus,
+        onLog,
+        density,
+      });
     } else {
       // Chooser dismissed: drop back to idle without overwriting a real error.
       setStatus((current) =>
@@ -338,7 +429,12 @@ export const App: React.FC = () => {
     }
   };
 
-  const shrunk = effectiveSize < fontSize && text.length > 0;
+  const printableQuantity = labels.reduce(
+    (total, item) => total + (item.text.length > 0 ? item.quantity : 0),
+    0,
+  );
+  const shrunk =
+    effectiveSize < fontSize && labels.some((item) => item.text.length > 0);
 
   // Base UI reads these to show the selected item's label rather than its value.
   const weightItems = findFont(fontFamily).weights.map((weight) => ({
@@ -424,120 +520,8 @@ export const App: React.FC = () => {
           </p>
         )}
 
-        {/* The tape itself: type straight onto the label, exactly as it prints. */}
-        <section>
-          <div className="flex justify-center rounded-2xl bg-stage px-6 py-8 ring-1 ring-border">
-            <div
-              onClick={() => inputRef.current?.focus()}
-              className="relative cursor-text rounded-[3px] bg-paper shadow-[0_10px_30px_-12px_rgba(0,0,0,0.8)]"
-              style={{
-                width: dots.length * scale,
-                height: dots.width * scale,
-              }}
-            >
-              <canvas
-                ref={previewCanvasRef}
-                className="absolute"
-                style={{
-                  width: dots.width,
-                  height: dots.length,
-                  left: (dots.length * scale - dots.width) / 2,
-                  top: (dots.width * scale - dots.length) / 2,
-                  transform: `rotate(90deg) scale(${scale})`,
-                }}
-              />
-              <input
-                ref={inputRef}
-                autoFocus
-                value={text}
-                onChange={(event) => setText(event.currentTarget.value)}
-                aria-label="Label text"
-                placeholder=""
-                className="absolute inset-0 h-full w-full border-none bg-transparent p-0 text-center outline-none"
-                style={{
-                  // The canvas underneath is the visible text; the input only
-                  // provides the caret and the keyboard.
-                  color: "transparent",
-                  caretColor: "#000000",
-                  fontFamily: `"${fontFamily}", sans-serif`,
-                  fontWeight,
-                  fontSize: effectiveSize * scale,
-                  lineHeight: `${dots.width * scale}px`,
-                }}
-              />
-              {!text && (
-                <span className="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-xs tracking-[0.2em] text-black/40 uppercase">
-                  Type your label
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Machine readout: what the printer is doing, and what it will lay down. */}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 font-mono text-[0.6875rem] tracking-[0.12em] uppercase">
-            <span
-              className={
-                status.stage === "error"
-                  ? "text-destructive"
-                  : "text-muted-foreground"
-              }
-            >
-              <span
-                aria-hidden
-                className={`mr-2 inline-block size-1.5 rounded-full align-middle ${
-                  status.stage === "error"
-                    ? "bg-destructive"
-                    : status.stage === "done"
-                      ? "bg-ok"
-                      : printing
-                        ? "animate-pulse bg-primary"
-                        : "bg-muted-foreground/40"
-                }`}
-              />
-              {statusText(status)}
-            </span>
-
-            {/* What the printer itself says, refreshed while it's connected. */}
-            <span className="text-muted-foreground">
-              {connection === "on" ? (
-                <>
-                  {printerName}
-                  {printerStatus.battery !== undefined &&
-                    ` · ${printerStatus.battery}%`}
-                  {printerStatus.coverOpen && (
-                    <span className="text-destructive"> · Cover open</span>
-                  )}
-                  {printerStatus.paper === false && (
-                    <span className="text-destructive"> · Out of paper</span>
-                  )}
-                  {printerStatus.overheated && (
-                    <span className="text-destructive"> · Overheated</span>
-                  )}
-                </>
-              ) : connection === "connecting" ? (
-                "Connecting…"
-              ) : (
-                "Not connected"
-              )}
-            </span>
-            <span className="text-muted-foreground">
-              {widthMm} × {lengthMm} mm ·{" "}
-              {isClamped(label) && (
-                <span className="text-foreground">12 mm printable · </span>
-              )}
-              {fontFamily} {fontWeight} ·{" "}
-              {auto || shrunk ? (
-                <span className="text-foreground">
-                  {effectiveSize} dots {auto ? "auto" : "auto-fit"}
-                </span>
-              ) : (
-                <>{fontSize} dots</>
-              )}
-            </span>
-          </div>
-        </section>
-
-        <section className="flex flex-wrap items-end gap-x-8 gap-y-5 rounded-2xl bg-card p-5 ring-1 ring-border">
+        <div className="flex flex-col gap-3">
+          <section className="flex flex-wrap items-end gap-x-8 gap-y-5 rounded-2xl bg-card p-5 ring-1 ring-border">
           <fieldset className="flex flex-wrap items-end gap-3">
             <legend className="mb-2 font-mono text-[0.625rem] tracking-[0.18em] text-muted-foreground uppercase">
               Type
@@ -759,12 +743,218 @@ export const App: React.FC = () => {
           <div className="ml-auto flex items-center gap-3">
             <Button
               onClick={onClickPrint}
-              disabled={printing || !bluetoothAvailable()}
+              disabled={
+                printing || !bluetoothAvailable() || printableQuantity === 0
+              }
               className="h-11 rounded-lg px-7 font-display text-base font-bold tracking-[0.08em] uppercase"
             >
               <PrinterIcon className="size-4" />
-              {printing ? "Printing" : "Print"}
+              {printing
+                ? "Printing"
+                : `Print ${printableQuantity} ${
+                    printableQuantity === 1 ? "label" : "labels"
+                  }`}
             </Button>
+          </div>
+          </section>
+
+          {/* Machine readout: what the printer is doing, and what it will lay down. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 font-mono text-[0.6875rem] tracking-[0.12em] uppercase">
+            <span
+              className={
+                status.stage === "error"
+                  ? "text-destructive"
+                  : "text-muted-foreground"
+              }
+            >
+              <span
+                aria-hidden
+                className={`mr-2 inline-block size-1.5 rounded-full align-middle ${
+                  status.stage === "error"
+                    ? "bg-destructive"
+                    : status.stage === "done"
+                      ? "bg-ok"
+                      : printing
+                        ? "animate-pulse bg-primary"
+                        : "bg-muted-foreground/40"
+                }`}
+              />
+              {statusText(status)}
+            </span>
+
+            <span className="text-muted-foreground">
+              {connection === "on" ? (
+                <>
+                  {printerName}
+                  {printerStatus.battery !== undefined &&
+                    ` · ${printerStatus.battery}%`}
+                  {printerStatus.coverOpen && (
+                    <span className="text-destructive"> · Cover open</span>
+                  )}
+                  {printerStatus.paper === false && (
+                    <span className="text-destructive"> · Out of paper</span>
+                  )}
+                  {printerStatus.overheated && (
+                    <span className="text-destructive"> · Overheated</span>
+                  )}
+                </>
+              ) : connection === "connecting" ? (
+                "Connecting…"
+              ) : (
+                "Not connected"
+              )}
+            </span>
+            <span className="text-muted-foreground">
+              {widthMm} × {lengthMm} mm ·{" "}
+              {isClamped(label) && (
+                <span className="text-foreground">12 mm printable · </span>
+              )}
+              {fontFamily} {fontWeight} ·{" "}
+              {auto || shrunk ? (
+                <span className="text-foreground">
+                  {effectiveSize} dots {auto ? "shared auto" : "auto-fit"}
+                </span>
+              ) : (
+                <>{fontSize} dots</>
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/* Every tape is both the editor and its exact print preview. */}
+        <section>
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="font-mono text-[0.625rem] tracking-[0.18em] text-muted-foreground uppercase">
+                Labels
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Type directly onto each label. One print sends them all.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addLabel}
+              className="font-mono text-[0.625rem] tracking-[0.12em] uppercase"
+            >
+              <PlusIcon />
+              Add label
+            </Button>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {labels.map((item, index) => (
+              <article
+                key={item.id}
+                className="rounded-2xl bg-stage px-4 py-4 ring-1 ring-border sm:px-6"
+              >
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  <span className="font-mono text-[0.625rem] tracking-[0.18em] text-muted-foreground uppercase">
+                    Label {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <div className="ml-auto flex items-center gap-2">
+                    <label
+                      htmlFor={`quantity-${item.id}`}
+                      className="font-mono text-[0.625rem] tracking-[0.12em] text-muted-foreground uppercase"
+                    >
+                      Quantity
+                    </label>
+                    <NumberField
+                      id={`quantity-${item.id}`}
+                      value={item.quantity}
+                      onValueChange={(value) =>
+                        updateLabel(item.id, {
+                          quantity: Math.max(
+                            1,
+                            Math.min(
+                              MAX_QUANTITY,
+                              Math.round(value ?? item.quantity),
+                            ),
+                          ),
+                        })
+                      }
+                      min={1}
+                      max={MAX_QUANTITY}
+                      className="w-24 bg-background"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeLabel(item.id)}
+                      disabled={labels.length === 1}
+                      aria-label={`Remove label ${index + 1}`}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex justify-center py-3">
+                  <div
+                    onClick={() => inputRefs.current.get(item.id)?.focus()}
+                    className="relative cursor-text overflow-hidden rounded-md bg-paper shadow-[0_10px_30px_-12px_rgba(0,0,0,0.8)]"
+                    style={{
+                      width: dots.length * scale,
+                      height: dots.width * scale,
+                    }}
+                  >
+                    <canvas
+                      ref={(node) => {
+                        if (node) {
+                          previewCanvasRefs.current.set(item.id, node);
+                        } else {
+                          previewCanvasRefs.current.delete(item.id);
+                        }
+                      }}
+                      className="absolute rounded-md"
+                      style={{
+                        width: dots.width,
+                        height: dots.length,
+                        left: (dots.length * scale - dots.width) / 2,
+                        top: (dots.width * scale - dots.length) / 2,
+                        transform: `rotate(90deg) scale(${scale})`,
+                      }}
+                    />
+                    <input
+                      ref={(node) => {
+                        if (node) {
+                          inputRefs.current.set(item.id, node);
+                        } else {
+                          inputRefs.current.delete(item.id);
+                        }
+                      }}
+                      autoFocus={index === 0}
+                      value={item.text}
+                      onChange={(event) =>
+                        updateLabel(item.id, {
+                          text: event.currentTarget.value,
+                        })
+                      }
+                      aria-label={`Label ${index + 1} text`}
+                      className="absolute inset-0 h-full w-full border-none bg-transparent p-0 text-center outline-none"
+                      style={{
+                        // The canvas underneath is the visible text; the input
+                        // only provides the caret and the keyboard.
+                        color: "transparent",
+                        caretColor: "#000000",
+                        fontFamily: `"${fontFamily}", sans-serif`,
+                        fontWeight,
+                        fontSize: effectiveSize * scale,
+                        lineHeight: `${dots.width * scale}px`,
+                      }}
+                    />
+                    {!item.text && (
+                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-xs tracking-[0.2em] text-black/40 uppercase">
+                        Type your label
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
         </section>
 
@@ -876,7 +1066,6 @@ export const App: React.FC = () => {
         </section>
       </div>
 
-      <canvas ref={printCanvasRef} className="hidden" />
     </div>
   );
 };

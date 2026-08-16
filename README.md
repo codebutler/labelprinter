@@ -5,8 +5,8 @@ Bluetooth. No app, no account, nothing to install.
 
 **[codebutler.github.io/labelprinter](https://codebutler.github.io/labelprinter/)**
 
-Type onto the label and press Print. Text fills the tape automatically, in any
-of the ~1,900 Google Fonts.
+Build a list of labels and press Print once to send the whole batch. Each label
+has its own quantity, and text uses any of the ~1,900 Google Fonts.
 
 ## Requirements
 
@@ -21,11 +21,13 @@ Press **Connect** and pick the printer. The connection stays open, so the
 header shows the device's own name and the readout tracks battery, paper and
 cover while you work — open the cover and it says so within a few seconds.
 
-Type straight onto the label. What's on screen is the same canvas that gets
-sent to the printer, so the preview can't drift from the print.
+Type straight onto any label preview; each preview also has its own quantity
+control. What's on screen comes from the same drawing code as the canvas sent
+to the printer.
 
-- **Text size** — *Auto* fills the tape; *Fixed* sets a ceiling and still
-  shrinks to fit under it.
+- **Text size** — *Auto* chooses the largest size that fits every label, so the
+  whole batch uses consistent type. *Fixed* sets a ceiling and still shrinks
+  the batch to fit under it.
 - **Label size** — the stock in the printer. 12 × 40 mm and 14 × 60 mm are
   presets; *Custom* takes any dimensions.
 - **Debug** — a hex log of everything sent and received, decoded; a density
