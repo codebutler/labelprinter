@@ -76,3 +76,6 @@ export const hexStringToArrayBuffer = (hexString: string) => {
   }
   return buffer;
 };
+
+export const sleep = async (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
