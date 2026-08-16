@@ -1,0 +1,45 @@
+src/print.ts
+  s_b56d5b457af1df::t_8ce7679bc77829 234-242,337-343,347-361,374,376-381,388,390-408,411,430-434
+  s_b56d5b457af1df::t_e9e7c11c2921ee 382-385
+  s_5c319dde45a577::t_8e8e613744f707 435
+README.md
+  s_b56d5b457af1df::t_d6cd148a8e489d 8-9,28-30
+  s_b56d5b457af1df::t_92f0567a4ce65c 24-26
+src/label.ts
+  s_b56d5b457af1df::t_8ce7679bc77829 75-82,117,131
+src/App.tsx
+  s_b56d5b457af1df::t_d9f68c2d6096a1 895
+  s_b56d5b457af1df::t_e6ec3a38102979 389-390,398-423,432-437
+  s_b56d5b457af1df::t_90d1a8f1a3d77b 760,824-894,896-897,899-911,913-958
+  s_b56d5b457af1df::t_8bc7de7662ea96 898,912
+  s_b56d5b457af1df::t_0c5fe14714b298 156-159,194-201,212,219,249-257
+  s_b56d5b457af1df::t_2ea68d4145b0d9 523-524,759,761,763-823
+  s_b56d5b457af1df::t_d6cd148a8e489d 746-748,752-756
+  s_b56d5b457af1df::t_02d51c81b8b38f 2,34,48,64-100,161,204-211,213-218,220-225,245-246,259,269
+  s_b56d5b457af1df::t_92f0567a4ce65c 247-248,258
+  s_b56d5b457af1df::t_3f6ba1fb631e3f 762
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "2446f651aeb8a3ed79d800c22007c0edd5804fac",
+  "prompts": {},
+  "sessions": {
+    "s_5c319dde45a577": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00220-b034-74a0-aa1f-01865dc7dce2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eric Butler <eric@codebutler.com>"
+    },
+    "s_b56d5b457af1df": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00b48-0403-7992-9a8b-f0693d6577d6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eric Butler <eric@codebutler.com>"
+    }
+  }
+}
