@@ -403,6 +403,27 @@ export const App: React.FC = () => {
           </div>
         </header>
 
+        {/* Someone arriving cold needs to know what this prints to, and that
+            it won't work in their browser, before they press anything. */}
+        {connection !== "on" && (
+          <p className="-mt-4 max-w-[62ch] text-sm text-muted-foreground">
+            {bluetoothAvailable() ? (
+              <>
+                For the <span className="text-foreground">Phomemo D30</span>{" "}
+                label maker. Switch the printer on, press Connect, and pick it
+                from the list — everything happens in this tab, over Bluetooth.
+              </>
+            ) : (
+              <>
+                This browser can't reach Bluetooth printers. Open it in{" "}
+                <span className="text-foreground">Chrome, Edge or Brave</span>{" "}
+                on a computer or Android phone — Safari and Firefox don't
+                support Web Bluetooth, so iPhones and iPads can't print.
+              </>
+            )}
+          </p>
+        )}
+
         {/* The tape itself: type straight onto the label, exactly as it prints. */}
         <section>
           <div className="flex justify-center rounded-2xl bg-stage px-6 py-8 ring-1 ring-border">
